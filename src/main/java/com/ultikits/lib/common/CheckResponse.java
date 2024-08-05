@@ -1,4 +1,4 @@
-package com.ultikits.lib.exceptions;
+package com.ultikits.lib.common;
 
 import lombok.Getter;
 

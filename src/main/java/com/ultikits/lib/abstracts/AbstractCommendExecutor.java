@@ -1,11 +1,12 @@
-package com.ultikits.ultitools.abstracts;
+package com.ultikits.lib.abstracts;
 
 import cn.hutool.core.util.ReflectUtil;
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
-import com.ultikits.ultitools.UltiTools;
-import com.ultikits.ultitools.annotations.command.*;
+import com.ultikits.lib.annotations.*;
+import com.ultikits.lib.common.CheckResponse;
 import lombok.Getter;
+import lombok.Setter;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
@@ -14,13 +15,13 @@ import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabExecutor;
 import org.bukkit.entity.Player;
+import org.bukkit.plugin.Plugin;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Array;
-import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
 import java.util.*;
@@ -40,9 +41,10 @@ public abstract class AbstractCommendExecutor implements TabExecutor {
     private final BiMap<UUID, Method> senderLock = HashBiMap.create();
     private final BiMap<UUID, Method> serverLock = HashBiMap.create();
     private final BiMap<UUID, Method> cmdCoolDown = HashBiMap.create();
-
     @Getter
     private final Map<List<Class<?>>, Function<String, ?>> parsers = new HashMap<>();
+    @Setter
+    private Plugin plugin;
 
     /**
      * Constructor that initializes parsers and scans command mappings.
@@ -63,16 +65,13 @@ public abstract class AbstractCommendExecutor implements TabExecutor {
      * @param cmdTarget The method that matches the command. <br> 匹配命令的方法。
      * @return Whether the sender is valid. <br> 发送者是否有效。
      */
-    private boolean checkCmdTargetType(CommandSender sender, CmdTarget cmdTarget) {
+    private CheckResponse checkCmdTargetType(CommandSender sender, CmdTarget cmdTarget) {
         if (cmdTarget.value().equals(CmdTarget.CmdTargetType.PLAYER) && !(sender instanceof Player)) {
-            sender.sendMessage(ChatColor.RED + UltiTools.getInstance().i18n("只有游戏内可以执行这个指令！"));
-            return false;
+            return new CheckResponse("This command can only be executed by a player.");
         }
-        if (cmdTarget.value().equals(CmdTarget.CmdTargetType.CONSOLE) && sender instanceof Player) {
-            sender.sendMessage(ChatColor.RED + UltiTools.getInstance().i18n("只可以在后台执行这个指令！"));
-            return false;
-        }
-        return true;
+        if (!cmdTarget.value().equals(CmdTarget.CmdTargetType.CONSOLE) || !(sender instanceof Player))
+            return CheckResponse.SUCCESS;
+        return new CheckResponse("This command can only be executed by the console.");
     }
 
     /**
@@ -267,56 +266,22 @@ public abstract class AbstractCommendExecutor implements TabExecutor {
      * 检查发送者是否有效。
      *
      * @param sender The sender of the command. <br> 命令的发送者。
-     * @return Whether the sender is valid. <br> 发送者是否有效。
-     */
-    private boolean checkSender(CommandSender sender) {
-        Class<? extends AbstractCommendExecutor> clazz = this.getClass();
-        if (!clazz.isAnnotationPresent(CmdTarget.class)) {
-            return true;
-        }
-        CmdTarget cmdTarget = clazz.getAnnotation(CmdTarget.class);
-        return checkCmdTargetType(sender, cmdTarget);
-    }
-
-    /**
-     * Checks whether the sender is valid.
-     * <p>
-     * 检查发送者是否有效。
-     *
-     * @param sender The sender of the command. <br> 命令的发送者。
      * @param method The method that matches the command. <br> 匹配命令的方法。
      * @return Whether the sender is valid. <br> 发送者是否有效。
      */
-    private boolean checkSender(CommandSender sender, Method method) {
+    private CheckResponse checkSender(CommandSender sender, Method method) {
         if (!method.isAnnotationPresent(CmdTarget.class)) {
-            return true;
+            Class<? extends AbstractCommendExecutor> clazz = this.getClass();
+            if (!clazz.isAnnotationPresent(CmdTarget.class)) {
+                return CheckResponse.SUCCESS;
+            }
+            CmdTarget cmdTarget = clazz.getAnnotation(CmdTarget.class);
+            return checkCmdTargetType(sender, cmdTarget);
         }
         CmdTarget cmdTarget = method.getAnnotation(CmdTarget.class);
         return checkCmdTargetType(sender, cmdTarget);
     }
 
-    /**
-     * Checks whether the sender has permission.
-     * <p>
-     * 检查发送者是否有权限。
-     *
-     * @param sender The sender of the command. <br> 命令的发送者。
-     * @return Whether the sender has permission. <br> 发送者是否有权限。
-     */
-    private boolean checkPermission(CommandSender sender) {
-        Class<? extends AbstractCommendExecutor> clazz = this.getClass();
-        if (!clazz.isAnnotationPresent(CmdExecutor.class)) {
-            return true;
-        }
-        CmdExecutor cmdExecutor = clazz.getAnnotation(CmdExecutor.class);
-        String permission = cmdExecutor.permission();
-        if (permission.isEmpty() || sender.hasPermission(permission)) {
-            return true;
-        }
-        sender.sendMessage(String.format(UltiTools.getInstance().i18n("需要权限"), permission));
-        return false;
-    }
-
 
     /**
      * Checks whether the sender has permission.
@@ -327,41 +292,26 @@ public abstract class AbstractCommendExecutor implements TabExecutor {
      * @param method The method that matches the command. <br> 匹配命令的方法。
      * @return Whether the sender has permission. <br> 发送者是否有权限。
      */
-    private boolean checkPermission(CommandSender sender, Method method) {
+    private CheckResponse checkPermission(CommandSender sender, Method method) {
         if (!method.isAnnotationPresent(CmdMapping.class)) {
-            return true;
+            Class<? extends AbstractCommendExecutor> clazz = this.getClass();
+            if (!clazz.isAnnotationPresent(CmdExecutor.class)) {
+                return CheckResponse.SUCCESS;
+            }
+            CmdExecutor cmdExecutor = clazz.getAnnotation(CmdExecutor.class);
+            String permission = cmdExecutor.permission();
+            if (sender.hasPermission(permission))
+                return CheckResponse.SUCCESS;
+            return new CheckResponse(String.format("§7Executing this command requires §f%s §7permission", permission));
         }
         CmdMapping cmdMapping = method.getAnnotation(CmdMapping.class);
         if (cmdMapping.permission().isEmpty()) {
-            return true;
+            return CheckResponse.SUCCESS;
         }
         String permission = cmdMapping.permission();
-        if (sender.hasPermission(permission)) {
-            return true;
-        }
-        sender.sendMessage(String.format(UltiTools.getInstance().i18n("需要权限"), permission));
-        return false;
-    }
-
-    /**
-     * Checks whether the sender need to be an OP.
-     * <p>
-     * 检查发送者是否需要是OP。
-     *
-     * @param sender The sender of the command. <br> 命令的发送者。
-     * @return Whether the sender need to be an OP. <br> 发送者是否需要是OP。
-     */
-    private boolean checkOp(CommandSender sender) {
-        Class<? extends AbstractCommendExecutor> clazz = this.getClass();
-        if (!clazz.isAnnotationPresent(CmdExecutor.class)) {
-            return true;
-        }
-        CmdExecutor cmdExecutor = clazz.getAnnotation(CmdExecutor.class);
-        if (cmdExecutor.requireOp() && !sender.isOp()) {
-            sender.sendMessage(ChatColor.RED + UltiTools.getInstance().i18n("你没有权限执行这个指令！"));
-            return false;
-        }
-        return true;
+        if (sender.hasPermission(permission))
+            return CheckResponse.SUCCESS;
+        return new CheckResponse(String.format("§7Executing this command requires §f%s §7permission", permission));
     }
 
     /**
@@ -373,16 +323,21 @@ public abstract class AbstractCommendExecutor implements TabExecutor {
      * @param method The method that matches the command. <br> 匹配命令的方法。
      * @return Whether the sender need to be an OP. <br> 发送者是否需要是OP。
      */
-    private boolean checkOp(CommandSender sender, Method method) {
+    private CheckResponse checkOp(CommandSender sender, Method method) {
         if (!method.isAnnotationPresent(CmdMapping.class)) {
-            return true;
+            Class<? extends AbstractCommendExecutor> clazz = this.getClass();
+            if (!clazz.isAnnotationPresent(CmdExecutor.class)) {
+                return CheckResponse.SUCCESS;
+            }
+            CmdExecutor cmdExecutor = clazz.getAnnotation(CmdExecutor.class);
+            if (cmdExecutor.requireOp() && sender.isOp())
+                return CheckResponse.SUCCESS;
+            return new CheckResponse("You do not have permission to execute this command.");
         }
         CmdMapping cmdMapping = method.getAnnotation(CmdMapping.class);
-        if (cmdMapping.requireOp() && !sender.isOp()) {
-            sender.sendMessage(ChatColor.RED + UltiTools.getInstance().i18n("你没有权限执行这个指令！"));
-            return false;
-        }
-        return true;
+        if (cmdMapping.requireOp() && sender.isOp())
+            return CheckResponse.SUCCESS;
+        return new CheckResponse("You do not have permission to execute this command.");
     }
 
     /**
@@ -394,31 +349,27 @@ public abstract class AbstractCommendExecutor implements TabExecutor {
      * @param method The method that matches the command. <br> 匹配命令的方法。
      * @return Whether the sender need to wait for the previous command to finish. <br> 发送者是否需要等待上一条命令执行完毕。
      */
-    private boolean checkLock(CommandSender sender, Method method) {
+    private CheckResponse checkNotLock(CommandSender sender, Method method) {
         if (!method.isAnnotationPresent(UsageLimit.class)) {
-            return false;
+            return CheckResponse.SUCCESS;
         }
         if (method.getAnnotation(UsageLimit.class).value().equals(UsageLimit.LimitType.SENDER)) {
             if (!(sender instanceof Player || method.getAnnotation(UsageLimit.class).ContainConsole())) {
-                return false;
+                return CheckResponse.SUCCESS;
             }
             if (sender instanceof Player && senderLock.get(((Player) sender).getUniqueId()).equals(method)) {
-                sender.sendMessage(ChatColor.RED + UltiTools.getInstance().i18n("请先等待上一条命令执行完毕！"));
-                return true;
+                return new CheckResponse("Please wait for the previous command to finish executing first!");
             }
-            return false;
         }
         if (method.getAnnotation(UsageLimit.class).value().equals(UsageLimit.LimitType.ALL)) {
             if (!(sender instanceof Player || method.getAnnotation(UsageLimit.class).ContainConsole())) {
-                return false;
+                return CheckResponse.SUCCESS;
             }
             if (sender instanceof Player && serverLock.get(((Player) sender).getUniqueId()).equals(method)) {
-                sender.sendMessage(ChatColor.RED + UltiTools.getInstance().i18n("请先等待其他玩家发送的命令执行完毕！"));
-                return true;
+                return new CheckResponse("Please wait for the other players' commands to be executed first!");
             }
-            return false;
         }
-        return false;
+        return CheckResponse.SUCCESS;
     }
 
     /**
@@ -429,16 +380,13 @@ public abstract class AbstractCommendExecutor implements TabExecutor {
      * @param sender The sender of the command. <br> 命令的发送者。
      * @return Whether the sender need to wait for command cool down. <br> 发送者是否需要等待命令冷却。
      */
-    private boolean checkCD(CommandSender sender) {
-        if (!(sender instanceof Player)) {
-            return false;
+    private CheckResponse checkNotInCD(CommandSender sender) {
+        if (!(sender instanceof Player player)) {
+            return CheckResponse.SUCCESS;
         }
-        Player player = (Player) sender;
-        if (cmdCoolDown.containsKey(player.getUniqueId())) {
-            sender.sendMessage(ChatColor.RED + UltiTools.getInstance().i18n("操作频繁，请稍后再试"));
-            return true;
-        }
-        return false;
+        if (cmdCoolDown.containsKey(player.getUniqueId()))
+            return new CheckResponse("Too many operations. Please try again later.");
+        return CheckResponse.SUCCESS;
     }
 
     /**
@@ -526,7 +474,7 @@ public abstract class AbstractCommendExecutor implements TabExecutor {
      * @param method        The method that matches the command. <br> 匹配命令的方法。
      */
     private void setCoolDown(CommandSender commandSender, Method method) {
-        if (!(commandSender instanceof Player)) {
+        if (!(commandSender instanceof Player player)) {
             return;
         }
         CmdCD cmdCD = method.getAnnotation(CmdCD.class);
@@ -536,7 +484,6 @@ public abstract class AbstractCommendExecutor implements TabExecutor {
         if (cmdCD.value() == 0) {
             return;
         }
-        Player player = (Player) commandSender;
         cmdCoolDown.put(player.getUniqueId(), method);
         new BukkitRunnable() {
             int time = cmdCD.value();
@@ -550,7 +497,7 @@ public abstract class AbstractCommendExecutor implements TabExecutor {
                     this.cancel();
                 }
             }
-        }.runTaskTimerAsynchronously(UltiTools.getInstance(), 0L, 20L);
+        }.runTaskTimerAsynchronously(plugin, 0L, 20L);
     }
 
 
@@ -562,18 +509,6 @@ public abstract class AbstractCommendExecutor implements TabExecutor {
      * @param sender The sender of the command. <br> 命令的发送者。
      */
     abstract protected void handleHelp(CommandSender sender);
-
-    /**
-     * Sends the error message.
-     * <p>
-     * 发送错误信息。
-     *
-     * @param sender  The sender of the command. <br> 命令的发送者。
-     * @param command The command that was executed. <br> 执行的命令。
-     */
-    protected void sendErrorMessage(CommandSender sender, Command command) {
-        sender.sendMessage(ChatColor.RED + String.format(UltiTools.getInstance().i18n("指令执行错误，请使用/%s %s获取帮助"), command.getName(), getHelpCommand()));
-    }
 
     /**
      * Tab complete method. Returns a list of possible completions for the specified command string.
@@ -593,7 +528,7 @@ public abstract class AbstractCommendExecutor implements TabExecutor {
             for (Map.Entry<String, Method> entry : mappings.entrySet()) {
                 Method method = entry.getValue();
                 String format = entry.getKey();
-                if (!checkPermission(player, method) || !checkOp(player, method)) {
+                if (!checkPermission(player, method).isSuccess() || !checkOp(player, method).isSuccess()) {
                     continue;
                 }
                 String arg = format.split(" ")[0];
@@ -649,16 +584,15 @@ public abstract class AbstractCommendExecutor implements TabExecutor {
             return;
         }
         Method[] suggestMethod = getSuggestMethodByName(suggestName);
-        UltiToolsPlugin pluginByCommand = UltiTools.getInstance().getCommandManager().getPluginByCommand(command);
         if (suggestMethod == null || suggestMethod.length == 0) {
-            completions.add(pluginByCommand.i18n(suggestName));
+            completions.add(suggestName);
             return;
         }
         Class<?> declaringClass = suggestMethod[0].getDeclaringClass();
         Collection<?> suggestObject;
         if (this.getClass() != declaringClass) {
-            Object bean = pluginByCommand.getContext().getBean(declaringClass);
-            suggestObject = invokeSuggestMethod(bean, suggestMethod[0], player, command, strings);
+            Object suggestInstance = ReflectUtil.newInstance(declaringClass);
+            suggestObject = invokeSuggestMethod(suggestInstance, suggestMethod[0], player, command, strings);
         } else {
             suggestObject = invokeSuggestMethod(this, suggestMethod[0], player, command, strings);
         }
@@ -711,8 +645,7 @@ public abstract class AbstractCommendExecutor implements TabExecutor {
         Annotation[][] parameterAnnotations = method.getParameterAnnotations();
         for (Annotation[] annotations : parameterAnnotations) {
             for (Annotation annotation : annotations) {
-                if (annotation instanceof CmdParam) {
-                    CmdParam cmdParam = (CmdParam) annotation;
+                if (annotation instanceof CmdParam cmdParam) {
                     if (!paramName.equals(cmdParam.value())) {
                         continue;
                     }
@@ -835,7 +768,7 @@ public abstract class AbstractCommendExecutor implements TabExecutor {
             Method method = entry.getValue();
             String format = entry.getKey();
             if (format.startsWith(command.substring(0, command.lastIndexOf(" ")))) {
-                if (checkPermission(player, method) && checkOp(player, method)) {
+                if (checkPermission(player, method).isSuccess() && checkOp(player, method).isSuccess()) {
                     perfectMatch.add(method);
                 }
             } else {
@@ -849,7 +782,7 @@ public abstract class AbstractCommendExecutor implements TabExecutor {
                     }
                 }
                 if (match) {
-                    if (checkPermission(player, method) && checkOp(player, method)) {
+                    if (checkPermission(player, method).isSuccess() && checkOp(player, method).isSuccess()) {
                         methods.add(method);
                     }
                 }
@@ -889,27 +822,38 @@ public abstract class AbstractCommendExecutor implements TabExecutor {
         }
         Method method = matchMethod(strings);
         if (method == null) {
-            commandSender.sendMessage(ChatColor.RED + String.format(UltiTools.getInstance().i18n("未知指令，请使用/%s %s获取帮助"), command.getName(), getHelpCommand()));
             handleHelp(commandSender);
             return true;
         }
         // 检查参数长度
-        if (!checkParameters(strings, method, commandSender,command)) {
+        CheckResponse checkResponse = checkParameters(strings, method, command);
+        if (!checkResponse.isSuccess()) {
+            handleParameterError(commandSender, checkResponse.getMessage());
             return true;
         }
-        if (!checkSender(commandSender) || !checkSender(commandSender, method)) {
+        CheckResponse checkSenderResponse = checkSender(commandSender, method);
+        if (!checkSenderResponse.isSuccess()) {
+            handleSenderError(commandSender, checkSenderResponse.getMessage());
             return true;
         }
-        if (!checkPermission(commandSender) || !checkPermission(commandSender, method)) {
+        CheckResponse checkPermissionResponse = checkPermission(commandSender, method);
+        if (!checkPermissionResponse.isSuccess()) {
+            handlePermissionError(commandSender, checkPermissionResponse.getMessage());
             return true;
         }
-        if (!checkOp(commandSender) || !checkOp(commandSender, method)) {
+        CheckResponse checkOpResponse = checkOp(commandSender, method);
+        if (!checkOpResponse.isSuccess()) {
+            handleOpError(commandSender, checkOpResponse.getMessage());
             return true;
         }
-        if (checkLock(commandSender, method)) {
+        CheckResponse checkNotLockResponse = checkNotLock(commandSender, method);
+        if (!checkNotLockResponse.isSuccess()) {
+            handleNotLockError(commandSender, checkNotLockResponse.getMessage());
             return true;
         }
-        if (checkCD(commandSender)) {
+        CheckResponse checkNotInCDResponse = checkNotInCD(commandSender);
+        if (!checkNotInCDResponse.isSuccess()) {
+            handleNotInCDError(commandSender, checkNotInCDResponse.getMessage());
             return true;
         }
         Object[] params = buildParams(strings, method, commandSender);
@@ -944,14 +888,14 @@ public abstract class AbstractCommendExecutor implements TabExecutor {
             }
         };
         if (method.isAnnotationPresent(RunAsync.class)) {
-            bukkitRunnable.runTaskAsynchronously(UltiTools.getInstance());
+            bukkitRunnable.runTaskAsynchronously(plugin);
         } else {
-            bukkitRunnable.runTask(UltiTools.getInstance());
+            bukkitRunnable.runTask(plugin);
         }
         return true;
     }
 
-    private boolean checkParameters(String[] args, Method method, CommandSender commandSender, Command command) {
+    private CheckResponse checkParameters(String[] args, Method method, Command command) {
         // 从 mappings 中获取 method 对应的格式字符串
         String format = mappings.inverse().get(method);
         // 按空格分割格式字符串
@@ -966,41 +910,55 @@ public abstract class AbstractCommendExecutor implements TabExecutor {
                 for (int i = 0; i < min; i++) {
                     // 检查最后一个格式参数是否是变长参数
                     if (formatArgs[formatArgs.length - 1].endsWith("...>")) {
-                        return true;
+                        return CheckResponse.SUCCESS;
                     }
                     // 如果当前参数不匹配
                     if (matchesArgument(formatArgs[i], args[i])) {
                         // 拼接传入的参数字符串
-                        String commandArgsStr = " ";
+                        StringBuilder commandArgsStr = new StringBuilder(" ");
                         for (int j = 0; j < min; j++) {
-                            commandArgsStr += ("§7" + args[j] + " ");
+                            commandArgsStr.append("§7").append(args[j]).append(" ");
                         }
                         // 告知错误位置
-                        commandSender.sendMessage(String.format(UltiTools.getInstance().i18n("参数错误"), command.getName(), commandArgsStr, args[min]));
-                        break;
+                        return new CheckResponse(
+                                String.format(
+                                        "§cArgument Error: §7/%s %s§c§n%s§r §c<--§o[Error Here]\b§eCorrect Usage: §7/%s %s",
+                                        command.getName(),
+                                        commandArgsStr,
+                                        args[min],
+                                        command.getName(),
+                                        format
+                                )
+                        );
                     }
                 }
             } else {
                 // 如果传入的参数少于格式字符串中的参数
                 // 拼接传入的参数字符串
-                String commandArgsStr = " ";
+                StringBuilder commandArgsStr = new StringBuilder(" ");
                 for (int j = 0; j < min; j++) {
-                    commandArgsStr += ("§7" + args[j] + " ");
+                    commandArgsStr.append("§7").append(args[j]).append(" ");
                 }
                 // 拼接缺少的参数字符串
-                String missingParameters = "";
+                StringBuilder missingParameters = new StringBuilder();
                 for (int j = min; j < formatArgs.length; j++) {
-                    missingParameters += ("§c§n" + formatArgs[j] + " ");
+                    missingParameters.append("§c§n").append(formatArgs[j]).append(" ");
                 }
-                missingParameters = missingParameters.trim();
+                missingParameters = new StringBuilder(missingParameters.toString().trim());
                 // 告知缺少参数的位置
-                commandSender.sendMessage(String.format(UltiTools.getInstance().i18n("缺少参数"), command.getName(), commandArgsStr, missingParameters));
+                return new CheckResponse(
+                        String.format(
+                                "§cMissing Parameters: §7/%s %s§c§n%s§r §c<--§o[Missing Part]\b§eCorrect Usage: §7/%s %s",
+                                command.getName(),
+                                commandArgsStr,
+                                missingParameters,
+                                command.getName(),
+                                format
+                        )
+                );
             }
-            // 提示正确用法
-            commandSender.sendMessage(String.format(UltiTools.getInstance().i18n("正确用法"), command.getName(), format));
-            return false;
         }
-        return true;
+        return CheckResponse.SUCCESS;
     }
 
     /**
@@ -1032,5 +990,65 @@ public abstract class AbstractCommendExecutor implements TabExecutor {
             return null;
         }
         return suggest((Player) commandSender, command, strings);
+    }
+
+    /**
+     * Handles the error when there is a parameter issue.
+     *
+     * @param sender  The sender of the command.
+     * @param message The error message to be sent.
+     */
+    public void handleParameterError(CommandSender sender, String message) {
+        sender.sendMessage(ChatColor.RED + message);
+    }
+
+    /**
+     * Handles the error when the sender is invalid.
+     *
+     * @param sender  The sender of the command.
+     * @param message The error message to be sent.
+     */
+    public void handleSenderError(CommandSender sender, String message) {
+        sender.sendMessage(ChatColor.RED + message);
+    }
+
+    /**
+     * Handles the error when the sender lacks permission.
+     *
+     * @param sender  The sender of the command.
+     * @param message The error message to be sent.
+     */
+    public void handlePermissionError(CommandSender sender, String message) {
+        sender.sendMessage(ChatColor.RED + message);
+    }
+
+    /**
+     * Handles the error when the sender is not an operator (OP).
+     *
+     * @param sender  The sender of the command.
+     * @param message The error message to be sent.
+     */
+    public void handleOpError(CommandSender sender, String message) {
+        sender.sendMessage(ChatColor.RED + message);
+    }
+
+    /**
+     * Handles the error when the sender needs to wait for the previous command to finish.
+     *
+     * @param sender  The sender of the command.
+     * @param message The error message to be sent.
+     */
+    public void handleNotLockError(CommandSender sender, String message) {
+        sender.sendMessage(ChatColor.RED + message);
+    }
+
+    /**
+     * Handles the error when the sender needs to wait for the command cooldown.
+     *
+     * @param sender  The sender of the command.
+     * @param message The error message to be sent.
+     */
+    public void handleNotInCDError(CommandSender sender, String message) {
+        sender.sendMessage(ChatColor.RED + message);
     }
 }

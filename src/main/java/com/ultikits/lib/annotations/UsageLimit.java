@@ -1,4 +1,4 @@
-package com.ultikits.ultitools.annotations.command;
+package com.ultikits.lib.annotations;
 
 import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
