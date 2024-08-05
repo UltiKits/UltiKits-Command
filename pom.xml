@@ -7,6 +7,22 @@
     <groupId>com.ultikits.lib</groupId>
     <artifactId>UltiKits-Command</artifactId>
     <version>1.0.0</version>
+    <description>This project is a module of UltiKits, provides a better way to develop spigot commands.</description>
+    <url>https://dev.ultikits.com/</url>
+
+    <licenses>
+        <license>
+            <name>MIT License</name>
+            <url>https://raw.githubusercontent.com/UltiKits/UltiTools-Command/main/LICENSE</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <scm>
+        <connection>scm:git@github.com:UltiKits/UltiTools-Command.git</connection>
+        <developerConnection>scm:git@github.com:UltiKits/UltiTools-Command.git</developerConnection>
+        <url>https://github.com/UltiKits/UltiTools-Command</url>
+    </scm>
 
     <developers>
         <developer>
