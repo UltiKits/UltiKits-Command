@@ -1,9 +1,11 @@
 package com.ultikits.lib.managers;
 
 import com.ultikits.lib.abstracts.AbstractCommendExecutor;
+import com.ultikits.lib.annotations.CmdExecutor;
 import lombok.Getter;
 import org.bukkit.Bukkit;
 import org.bukkit.command.Command;
+import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandMap;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.plugin.Plugin;
@@ -12,6 +14,7 @@ import org.bukkit.plugin.SimplePluginManager;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -39,14 +42,36 @@ public class CommandManager {
      * 注册命令
      *
      * @param commandExecutor Command executor <br> 命令执行器
+     */
+    public void register(AbstractCommendExecutor commandExecutor) {
+        commandExecutor.setPlugin(plugin);
+        if (!commandExecutor.getClass().isAnnotationPresent(CmdExecutor.class)) {
+            plugin.getLogger().warning("Command executor class " + commandExecutor.getClass().getName() + " does not have CmdExecutor annotation.");
+            return;
+        }
+        CmdExecutor annotation = commandExecutor.getClass().getAnnotation(CmdExecutor.class);
+        PluginCommand command = register(commandExecutor, annotation.permission(), annotation.description(), annotation.alias());
+        commandList.add(command);
+    }
+
+    /**
+     * Don't use this method to register commands, use {@link #register(AbstractCommendExecutor)} instead.
+     * <p>
+     * 不要使用此方法注册命令，使用{@link #register(AbstractCommendExecutor)}代替。
+     *
+     * @param commandExecutor Command executor instance <br> 命令执行器实例
      * @param permission      Permission <br> 权限
      * @param description     Description <br> 描述
-     * @param aliases         Command alias <br> 命令别名
+     * @param aliases         Aliases <br> 别名
      */
-    private void register(AbstractCommendExecutor commandExecutor, String permission, String description, String... aliases) {
-        commandExecutor.setPlugin(plugin);
+    private PluginCommand register(CommandExecutor commandExecutor, String permission, String description, String... aliases) {
         PluginCommand command = getCommand(aliases[0], plugin);
-        commandList.add(command);
+        command.setAliases(Arrays.asList(aliases));
+        command.setPermission(permission);
+        command.setDescription(description);
+        getCommandMap().register(plugin.getDescription().getName(), command);
+        command.setExecutor(commandExecutor);
+        return command;
     }
 
     /**

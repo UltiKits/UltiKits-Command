@@ -1,6 +1,5 @@
 package com.ultikits.lib.abstracts;
 
-import cn.hutool.core.util.ReflectUtil;
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
 import com.ultikits.lib.annotations.*;
@@ -22,6 +21,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Array;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
 import java.util.*;
@@ -84,31 +84,41 @@ public abstract class AbstractCommendExecutor implements TabExecutor {
      * @return The map of the parameters. <br> 参数的映射。
      */
     private Map<String, String[]> getParams(String[] args, String format) {
-        if (args.length == 0) {
-            return Collections.emptyMap();
-        }
-
+        // Split the format string by spaces to get individual format arguments
         String[] formatArgs = format.split(" ");
+        // Initialize a map to store the parameters
         Map<String, String[]> params = new HashMap<>();
-        List<String> paramList = new ArrayList<>();
-        int index = 0;
-        for (String arg : args) {
-            String currentFormatArg = formatArgs[index];
-            if (currentFormatArg.startsWith("<")) {
-                String paramName = currentFormatArg.substring(1, currentFormatArg.length() - (currentFormatArg.endsWith("...>") ? 4 : 1));
-                if (currentFormatArg.endsWith("...>")) {
-                    paramList.add(arg);
+        // Initialize a list to store the remaining arguments for the last parameter
+        List<String> remainingArgs = new ArrayList<>();
+
+        // Iterate over the format arguments and the args simultaneously
+        for (int i = 0, j = 0; i < formatArgs.length && j < args.length; i++) {
+            String formatArg = formatArgs[i];
+            String arg = args[j];
+
+            // Check if the format argument is a parameter (starts with < and ends with >)
+            if (formatArg.startsWith("<") && formatArg.endsWith(">")) {
+                // Check if the format argument is a varargs parameter (ends with ...>)
+                if (formatArg.endsWith("...>")) {
+                    // Extract the parameter name without the < and ...> parts
+                    String paramName = formatArg.substring(1, formatArg.length() - 4);
+                    // Add the remaining args to the params map
+                    for (; j < args.length; j++) {
+                        remainingArgs.add(args[j]);
+                    }
+                    params.put(paramName, remainingArgs.toArray(new String[0]));
                 } else {
+                    // Extract the parameter name without the < and > parts
+                    String paramName = formatArg.substring(1, formatArg.length() - 1);
+                    // Add the current arg to the params map
                     params.put(paramName, new String[]{arg});
+                    j++;
                 }
+            } else {
+                // Skip non-parameter format arguments
+                j++;
             }
-            index++;
         }
-
-        if (!paramList.isEmpty()) {
-            params.put(formatArgs[index].substring(1, formatArgs[index].length() - 1), paramList.toArray(new String[0]));
-        }
-
         return params;
     }
 
@@ -335,9 +345,9 @@ public abstract class AbstractCommendExecutor implements TabExecutor {
             return new CheckResponse("You do not have permission to execute this command.");
         }
         CmdMapping cmdMapping = method.getAnnotation(CmdMapping.class);
-        if (cmdMapping.requireOp() && sender.isOp())
-            return CheckResponse.SUCCESS;
-        return new CheckResponse("You do not have permission to execute this command.");
+        if (cmdMapping.requireOp() && !sender.isOp())
+            return new CheckResponse("You do not have permission to execute this command.");
+        return CheckResponse.SUCCESS;
     }
 
     /**
@@ -589,17 +599,22 @@ public abstract class AbstractCommendExecutor implements TabExecutor {
             return;
         }
         Class<?> declaringClass = suggestMethod[0].getDeclaringClass();
-        Collection<?> suggestObject;
-        if (this.getClass() != declaringClass) {
-            Object suggestInstance = ReflectUtil.newInstance(declaringClass);
-            suggestObject = invokeSuggestMethod(suggestInstance, suggestMethod[0], player, command, strings);
-        } else {
-            suggestObject = invokeSuggestMethod(this, suggestMethod[0], player, command, strings);
-        }
-        if (suggestObject != null) {
-            for (Object o : suggestObject) {
-                completions.add(o.toString());
+        try {
+            // 确定需要使用的实例
+            Object instance = (this.getClass() != declaringClass)
+                    ? declaringClass.getDeclaredConstructor().newInstance()
+                    : this;
+
+            // 调用方法并获取返回值
+            Collection<?> suggestObject = invokeSuggestMethod(instance, suggestMethod[0], player, command, strings);
+
+            // 将返回的集合转换为字符串并添加到 completions 中
+            if (suggestObject != null) {
+                suggestObject.stream().map(Object::toString).forEach(completions::add);
             }
+        } catch (NoSuchMethodException | InstantiationException | IllegalAccessException |
+                 InvocationTargetException e) {
+            plugin.getLogger().severe("An error occurred while processing suggestions: " + e.getMessage());
         }
     }
 
@@ -713,7 +728,9 @@ public abstract class AbstractCommendExecutor implements TabExecutor {
      */
     @Nullable
     private Method[] getMethod(Class<?> clazz, String suggestName) {
-        return ReflectUtil.getMethods(clazz, method -> method.getName().equals(suggestName));
+        return Arrays.stream(clazz.getDeclaredMethods())
+                .filter(method -> method.getName().equals(suggestName))
+                .toArray(Method[]::new);
     }
 
     /**
@@ -731,9 +748,10 @@ public abstract class AbstractCommendExecutor implements TabExecutor {
     private Collection<?> invokeSuggestMethod(Object object, Method method, Player player, Command command, String[] strings) {
         Parameter[] parameters = method.getParameters();
         Object[] params = new Object[parameters.length];
+
+        // 根据参数类型设置参数值
         for (int i = 0; i < parameters.length; i++) {
-            Parameter parameter = parameters[i];
-            Class<?> type = parameter.getType();
+            Class<?> type = parameters[i].getType();
             if (type.equals(Player.class)) {
                 params[i] = player;
             } else if (type.equals(Command.class)) {
@@ -742,7 +760,14 @@ public abstract class AbstractCommendExecutor implements TabExecutor {
                 params[i] = strings;
             }
         }
-        return ReflectUtil.invoke(object, method, params);
+
+        try {
+            // 调用方法
+            method.setAccessible(true);
+            return (Collection<?>) method.invoke(object, params);
+        } catch (IllegalAccessException | InvocationTargetException e) {
+            throw new RuntimeException("Failed to invoke suggest method", e);
+        }
     }
 
     /**
@@ -875,7 +900,10 @@ public abstract class AbstractCommendExecutor implements TabExecutor {
 
                 try {
                     setCoolDown(commandSender, method);
-                    ReflectUtil.invoke(getInstance(), method, params);
+                    method.setAccessible(true);
+                    method.invoke(getInstance(), params);
+                } catch (IllegalAccessException | InvocationTargetException e) {
+                    throw new RuntimeException("Failed to invoke command method", e);
                 } finally {
                     if (usageLimit != null) {
                         if (usageLimit.value().equals(UsageLimit.LimitType.ALL)) {
@@ -902,63 +930,65 @@ public abstract class AbstractCommendExecutor implements TabExecutor {
         String[] formatArgs = format.split(" ");
 
         // 如果格式字符串中的参数数量与传入的参数数量不一致
-        if (formatArgs.length != args.length) {
-            int min = Math.min(formatArgs.length, args.length);
+        if (formatArgs.length == args.length) {
+            return CheckResponse.SUCCESS;
+        }
+        int min = Math.min(formatArgs.length, args.length);
 
-            // 如果传入的参数多于格式字符串中的参数
-            if (formatArgs.length < args.length) {
-                for (int i = 0; i < min; i++) {
-                    // 检查最后一个格式参数是否是变长参数
-                    if (formatArgs[formatArgs.length - 1].endsWith("...>")) {
-                        return CheckResponse.SUCCESS;
-                    }
-                    // 如果当前参数不匹配
-                    if (matchesArgument(formatArgs[i], args[i])) {
-                        // 拼接传入的参数字符串
-                        StringBuilder commandArgsStr = new StringBuilder(" ");
-                        for (int j = 0; j < min; j++) {
-                            commandArgsStr.append("§7").append(args[j]).append(" ");
-                        }
-                        // 告知错误位置
-                        return new CheckResponse(
-                                String.format(
-                                        "§cArgument Error: §7/%s %s§c§n%s§r §c<--§o[Error Here]\b§eCorrect Usage: §7/%s %s",
-                                        command.getName(),
-                                        commandArgsStr,
-                                        args[min],
-                                        command.getName(),
-                                        format
-                                )
-                        );
-                    }
+        // 如果传入的参数多于格式字符串中的参数
+        if (formatArgs.length < args.length) {
+            for (int i = 0; i < min; i++) {
+                // 检查最后一个格式参数是否是变长参数
+                if (formatArgs[formatArgs.length - 1].endsWith("...>")) {
+                    return CheckResponse.SUCCESS;
                 }
-            } else {
-                // 如果传入的参数少于格式字符串中的参数
+                // 如果当前参数匹配
+                if (!matchesArgument(formatArgs[i], args[i])) {
+                    continue;
+                }
                 // 拼接传入的参数字符串
                 StringBuilder commandArgsStr = new StringBuilder(" ");
                 for (int j = 0; j < min; j++) {
                     commandArgsStr.append("§7").append(args[j]).append(" ");
                 }
-                // 拼接缺少的参数字符串
-                StringBuilder missingParameters = new StringBuilder();
-                for (int j = min; j < formatArgs.length; j++) {
-                    missingParameters.append("§c§n").append(formatArgs[j]).append(" ");
-                }
-                missingParameters = new StringBuilder(missingParameters.toString().trim());
-                // 告知缺少参数的位置
+                // 告知错误位置
                 return new CheckResponse(
                         String.format(
-                                "§cMissing Parameters: §7/%s %s§c§n%s§r §c<--§o[Missing Part]\b§eCorrect Usage: §7/%s %s",
+                                "§cArgument Error: §7/%s %s§c§n%s§r §c<--§o[Error Here]\n§eCorrect Usage: §7/%s %s",
                                 command.getName(),
                                 commandArgsStr,
-                                missingParameters,
+                                args[min],
                                 command.getName(),
                                 format
                         )
                 );
             }
+            return CheckResponse.SUCCESS;
+        } else {
+            // 如果传入的参数少于格式字符串中的参数
+            // 拼接传入的参数字符串
+            StringBuilder commandArgsStr = new StringBuilder(" ");
+            for (int j = 0; j < min; j++) {
+                commandArgsStr.append("§7").append(args[j]).append(" ");
+            }
+            // 拼接缺少的参数字符串
+            StringBuilder missingParameters = new StringBuilder();
+            for (int j = min; j < formatArgs.length; j++) {
+                missingParameters.append("§c§n").append(formatArgs[j]).append(" ");
+            }
+            missingParameters = new StringBuilder(missingParameters.toString().trim());
+            // 告知缺少参数的位置
+            return new CheckResponse(
+                    String.format(
+                            "§cMissing Parameters: §7/%s %s§c§n%s§r §c<--§o[Missing Part]\n§eCorrect Usage: §7/%s %s",
+                            command.getName(),
+                            commandArgsStr,
+                            missingParameters,
+                            command.getName(),
+                            format
+                    )
+            );
         }
-        return CheckResponse.SUCCESS;
     }
 
     /**
