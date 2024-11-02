@@ -1,4 +1,4 @@
-package com.ultikits.lib.annotations;
+package com.ultikits.lib.command.annotations;
 
 import java.lang.annotation.*;
 

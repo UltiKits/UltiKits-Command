@@ -1,9 +1,9 @@
-package com.ultikits.lib.abstracts;
+package com.ultikits.lib.command.abstracts;
 
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
-import com.ultikits.lib.annotations.*;
-import com.ultikits.lib.common.CheckResponse;
+import com.ultikits.lib.command.annotations.*;
+import com.ultikits.lib.command.common.CheckResponse;
 import lombok.Getter;
 import lombok.Setter;
 import org.bukkit.Bukkit;

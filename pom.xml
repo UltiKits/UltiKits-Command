@@ -6,7 +6,7 @@
     <name>UltiTools-Command</name>
     <groupId>com.ultikits.lib</groupId>
     <artifactId>UltiKits-Command</artifactId>
-    <version>1.0.1</version>
+    <version>1.0.2</version>
     <description>This project is a module of UltiKits, provides a better way to develop spigot commands.</description>
     <url>https://dev.ultikits.com/</url>
 

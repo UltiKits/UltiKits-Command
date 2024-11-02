@@ -1,4 +1,4 @@
-package com.ultikits.lib.common;
+package com.ultikits.lib.command.common;
 
 import lombok.Getter;
 

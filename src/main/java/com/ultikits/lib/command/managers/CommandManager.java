@@ -1,7 +1,7 @@
-package com.ultikits.lib.managers;
+package com.ultikits.lib.command.managers;
 
-import com.ultikits.lib.abstracts.AbstractCommendExecutor;
-import com.ultikits.lib.annotations.CmdExecutor;
+import com.ultikits.lib.command.abstracts.AbstractCommendExecutor;
+import com.ultikits.lib.command.annotations.CmdExecutor;
 import lombok.Getter;
 import org.bukkit.Bukkit;
 import org.bukkit.command.Command;
