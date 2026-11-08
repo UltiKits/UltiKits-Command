@@ -34,14 +34,13 @@
     </developers>
 
     <distributionManagement>
+        <!-- Releases go through central-publishing-maven-plugin (below), not this section. The legacy
+             OSSRH staging host this used to name is retired and answers 404.
+             SNAPSHOT deploys go to the Central Portal snapshot endpoint, as in UltiTools-API. -->
         <snapshotRepository>
             <id>ultikits-sonatype</id>
-            <url>https://s01.oss.sonatype.org/content/repositories/snapshots</url>
+            <url>https://central.sonatype.com/repository/maven-snapshots/</url>
         </snapshotRepository>
-        <repository>
-            <id>ultikits-sonatype</id>
-            <url>https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/</url>
-        </repository>
     </distributionManagement>
 
     <properties>
@@ -194,14 +193,17 @@
                 </executions>
             </plugin>
             <plugin>
-                <groupId>org.sonatype.plugins</groupId>
-                <artifactId>nexus-staging-maven-plugin</artifactId>
-                <version>1.7.0</version>
+                <!-- Same publisher and server id as UltiTools-API. autoPublish is false so the first
+                     release through the Central Portal stops at a validated deployment that the
+                     maintainer publishes by hand in the Portal. -->
+                <groupId>org.sonatype.central</groupId>
+                <artifactId>central-publishing-maven-plugin</artifactId>
+                <version>0.9.0</version>
                 <extensions>true</extensions>
                 <configuration>
-                    <serverId>ultikits-nexus-token</serverId>
-                    <nexusUrl>https://s01.oss.sonatype.org/</nexusUrl>
-                    <autoReleaseAfterClose>true</autoReleaseAfterClose>
+                    <publishingServerId>ultikits-sonatype</publishingServerId>
+                    <autoPublish>false</autoPublish>
+                    <waitUntil>validated</waitUntil>
                 </configuration>
             </plugin>
         </plugins>
